@@ -1,0 +1,39 @@
+# Python build artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# pipx / pip install leftovers
+*.egg-link
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+.env
+
+# Downloaded model weights (large binary files, cached at runtime)
+*.pth
+*.ckpt
+
+# VSCode workspace settings (contains absolute local paths)
+.vscode/
+
+# Pyright / type checker config (contains absolute local venv paths)
+pyrightconfig.json
+
+# macOS
+.DS_Store
+
+# Editor swap/backup files
+*.swp
+*.swo
+*~

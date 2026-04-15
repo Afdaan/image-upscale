@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "image-upscale"
+version = "1.0.0"
+description = "Easy CLI image upscaler powered by Real-ESRGAN and BasicSR"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.9"
+dependencies = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "opencv-python>=4.8.0",
+]
+
+[project.scripts]
+upscale = "image_upscale.main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["image_upscale*"]
