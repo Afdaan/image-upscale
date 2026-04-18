@@ -31,6 +31,47 @@ Verify the install worked:
 upscale --help
 ```
 
+### One-command install + Thunar right-click action
+
+If you want a global install flow with a Thunar context menu entry for selected images:
+
+```bash
+git clone https://github.com/ChrisTitusTech/image-upscale
+cd image-upscale
+chmod +x install.sh
+./install.sh
+```
+
+This installs:
+
+- The Python CLI command `upscale`
+- A Thunar wrapper command `upscale-selected`
+- A Thunar custom action: `Upscale Image (Real-ESRGAN)`
+
+The installer uses a dedicated virtual environment, so it avoids system Python package conflicts (including PEP 668 externally-managed environment errors).
+
+System-wide install:
+
+```bash
+sudo ./install.sh --system
+```
+
+`--system` installs to `/opt/image-upscale/venv` and places commands in `/usr/local/bin`.
+
+Custom wrapper bin directory:
+
+```bash
+./install.sh --bin-dir "$HOME/bin"
+```
+
+Skip Thunar registration (install commands only):
+
+```bash
+./install.sh --skip-thunar
+```
+
+If Thunar is already open, restart it to reload custom actions.
+
 ---
 
 ## Step 2 — Pick your images
@@ -118,6 +159,18 @@ upscale photo.jpg --tile 512
 # Output at 2x even though the x4 model is used internally
 upscale photo.jpg --scale 2
 ```
+
+---
+
+## Thunar usage
+
+After running `install.sh`:
+
+1. Select one or more image files in Thunar.
+2. Right-click the selection.
+3. Choose `Upscale Image (Real-ESRGAN)`.
+
+Each selected file is processed by the `upscale` CLI and written into an `upscale/` folder beside the source image.
 
 ---
 
