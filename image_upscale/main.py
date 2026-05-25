@@ -292,6 +292,29 @@ def main():
             if "CUDA out of memory" in str(exc):
                 print("\nERROR: GPU out of memory. Try --tile 512 or --fp32.")
                 sys.exit(1)
+            
+            # Handle CPU oneDNN (MKLDNN) incompatible instruction set error gracefully
+            if "could not create a primitive" in str(exc):
+                import torch
+                try:
+                    if torch.backends.mkldnn.enabled:
+                        print("\n  [Warning] CPU acceleration error (oneDNN). Retrying with MKLDNN disabled...")
+                        torch.backends.mkldnn.enabled = False
+                        try:
+                            output, _ = upsampler.enhance(img, outscale=out_scale)
+                        except Exception as retry_exc:
+                            print(f"SKIP (error: {retry_exc})")
+                            failed += 1
+                            continue
+                    else:
+                        print(f"SKIP (error: {exc})")
+                        failed += 1
+                        continue
+                except AttributeError:
+                    print(f"SKIP (error: {exc})")
+                    failed += 1
+                    continue
+            
             print(f"SKIP (error: {exc})")
             failed += 1
             continue
