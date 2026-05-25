@@ -2,9 +2,13 @@
 """image-upscale: Easy image upscaling via Real-ESRGAN."""
 
 import argparse
+import os
 import sys
 import urllib.request
 from pathlib import Path
+
+# Disable NNPACK globally in PyTorch to suppress "Unsupported hardware" warning logs on CPU
+os.environ["USE_NNPACK"] = "0"
 
 # Supported input image extensions
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".tif"}
