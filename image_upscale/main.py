@@ -88,6 +88,11 @@ def build_upsampler(model_cfg: dict, tile: int, use_fp32: bool, device: str = No
         if effective_half:
             print("  CPU mode active. Automatically switching to float32 (--fp32) for compatibility.")
             effective_half = False
+        # Disable NNPACK to avoid "Unsupported hardware" warning logs on older server CPUs
+        try:
+            torch.backends.nnpack.enabled = False
+        except AttributeError:
+            pass
 
     weight_path = CACHE_DIR / model_cfg["filename"]
     if not weight_path.exists():
@@ -300,6 +305,10 @@ def main():
                     if torch.backends.mkldnn.enabled:
                         print("\n  [Warning] CPU acceleration error (oneDNN). Retrying with MKLDNN disabled...")
                         torch.backends.mkldnn.enabled = False
+                        try:
+                            torch.backends.nnpack.enabled = False
+                        except AttributeError:
+                            pass
                         try:
                             output, _ = upsampler.enhance(img, outscale=out_scale)
                         except Exception as retry_exc:
