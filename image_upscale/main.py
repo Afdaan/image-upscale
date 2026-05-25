@@ -5,10 +5,8 @@ import argparse
 import os
 import sys
 import urllib.request
+from contextlib import contextmanager
 from pathlib import Path
-
-# Disable NNPACK globally in PyTorch to suppress "Unsupported hardware" warning logs on CPU
-os.environ["USE_NNPACK"] = "0"
 
 # Supported input image extensions
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".tif"}
@@ -75,6 +73,20 @@ def download_weight(url: str, dest: Path) -> None:
     print()  # newline after progress
 
 
+@contextmanager
+def _suppress_stderr():
+    """Temporarily suppress stderr to silence C++ level warnings from PyTorch."""
+    stderr_fd = os.dup(2)
+    devnull = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(devnull, 2)
+    os.close(devnull)
+    try:
+        yield
+    finally:
+        os.dup2(stderr_fd, 2)
+        os.close(stderr_fd)
+
+
 def build_upsampler(model_cfg: dict, tile: int, use_fp32: bool, device: str = None):
     """Construct and return a RealESRGANer instance for the given model config."""
     from image_upscale._vendor.upsampler import RealESRGANer
@@ -92,25 +104,25 @@ def build_upsampler(model_cfg: dict, tile: int, use_fp32: bool, device: str = No
         if effective_half:
             print("  CPU mode active. Automatically switching to float32 (--fp32) for compatibility.")
             effective_half = False
-        
-        # Test if PyTorch's oneDNN (MKLDNN) backend is compatible with this CPU to avoid runtime crashes
-        try:
-            conv = torch.nn.Conv2d(3, 3, 3)
-            x = torch.randn(1, 3, 16, 16)
-            with torch.no_grad():
-                _ = conv(x)
-        except RuntimeError as exc:
-            if "could not create a primitive" in str(exc):
-                try:
-                    torch.backends.mkldnn.enabled = False
-                except AttributeError:
-                    pass
 
-        # Disable NNPACK to avoid "Unsupported hardware" warning logs on older server CPUs
+        # Disable oneDNN (MKLDNN) and NNPACK CPU acceleration backends.
+        # These backends require specific CPU instruction sets (AVX2, etc.) that are
+        # unavailable on many server and older CPUs, causing fatal "could not create
+        # a primitive" errors and noisy "Unsupported hardware" warning logs.
+        # PyTorch falls back to default CPU operators which work on all hardware.
+        try:
+            torch.backends.mkldnn.enabled = False
+        except AttributeError:
+            pass
         try:
             torch.backends.nnpack.enabled = False
         except AttributeError:
             pass
+
+        # Suppress C++ level NNPACK warnings that bypass Python flags
+        _cpu_suppress = True
+    else:
+        _cpu_suppress = False
 
     weight_path = CACHE_DIR / model_cfg["filename"]
     if not weight_path.exists():
@@ -141,17 +153,30 @@ def build_upsampler(model_cfg: dict, tile: int, use_fp32: bool, device: str = No
             act_type="prelu",
         )
 
-    upsampler = RealESRGANer(
-        scale=scale,
-        model_path=str(weight_path),
-        model=model,
-        tile=tile,
-        tile_pad=10,
-        pre_pad=0,
-        half=effective_half,
-        device=torch_device,
-    )
-    return upsampler
+    if _cpu_suppress:
+        with _suppress_stderr():
+            upsampler = RealESRGANer(
+                scale=scale,
+                model_path=str(weight_path),
+                model=model,
+                tile=tile,
+                tile_pad=10,
+                pre_pad=0,
+                half=effective_half,
+                device=torch_device,
+            )
+    else:
+        upsampler = RealESRGANer(
+            scale=scale,
+            model_path=str(weight_path),
+            model=model,
+            tile=tile,
+            tile_pad=10,
+            pre_pad=0,
+            half=effective_half,
+            device=torch_device,
+        )
+    return upsampler, _cpu_suppress
 
 
 def collect_images(input_path: Path) -> list[Path]:
@@ -286,7 +311,7 @@ def main():
     print()
 
     # Load model (deferred import so --help works without torch installed)
-    upsampler = build_upsampler(model_cfg, tile=args.tile, use_fp32=args.fp32, device=args.device)
+    upsampler, _cpu_suppress = build_upsampler(model_cfg, tile=args.tile, use_fp32=args.fp32, device=args.device)
 
     try:
         import cv2
@@ -310,38 +335,15 @@ def main():
             continue
 
         try:
-            output, _ = upsampler.enhance(img, outscale=out_scale)
+            if _cpu_suppress:
+                with _suppress_stderr():
+                    output, _ = upsampler.enhance(img, outscale=out_scale)
+            else:
+                output, _ = upsampler.enhance(img, outscale=out_scale)
         except RuntimeError as exc:
             if "CUDA out of memory" in str(exc):
                 print("\nERROR: GPU out of memory. Try --tile 512 or --fp32.")
                 sys.exit(1)
-            
-            # Handle CPU oneDNN (MKLDNN) incompatible instruction set error gracefully
-            if "could not create a primitive" in str(exc):
-                import torch
-                try:
-                    if torch.backends.mkldnn.enabled:
-                        print("\n  [Warning] CPU acceleration error (oneDNN). Retrying with MKLDNN disabled...")
-                        torch.backends.mkldnn.enabled = False
-                        try:
-                            torch.backends.nnpack.enabled = False
-                        except AttributeError:
-                            pass
-                        try:
-                            output, _ = upsampler.enhance(img, outscale=out_scale)
-                        except Exception as retry_exc:
-                            print(f"SKIP (error: {retry_exc})")
-                            failed += 1
-                            continue
-                    else:
-                        print(f"SKIP (error: {exc})")
-                        failed += 1
-                        continue
-                except AttributeError:
-                    print(f"SKIP (error: {exc})")
-                    failed += 1
-                    continue
-            
             print(f"SKIP (error: {exc})")
             failed += 1
             continue
