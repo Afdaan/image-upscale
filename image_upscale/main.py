@@ -71,9 +71,23 @@ def download_weight(url: str, dest: Path) -> None:
     print()  # newline after progress
 
 
-def build_upsampler(model_cfg: dict, tile: int, use_fp32: bool):
+def build_upsampler(model_cfg: dict, tile: int, use_fp32: bool, device: str = None):
     """Construct and return a RealESRGANer instance for the given model config."""
     from image_upscale._vendor.upsampler import RealESRGANer
+    import torch
+
+    # Determine target device
+    if device is not None:
+        torch_device = torch.device(device)
+    else:
+        torch_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # CPU doesn't support float16 (half) operations well in PyTorch; force float32 on CPU.
+    effective_half = not use_fp32
+    if torch_device.type == "cpu":
+        if effective_half:
+            print("  CPU mode active. Automatically switching to float32 (--fp32) for compatibility.")
+            effective_half = False
 
     weight_path = CACHE_DIR / model_cfg["filename"]
     if not weight_path.exists():
@@ -111,7 +125,8 @@ def build_upsampler(model_cfg: dict, tile: int, use_fp32: bool):
         tile=tile,
         tile_pad=10,
         pre_pad=0,
-        half=not use_fp32,
+        half=effective_half,
+        device=torch_device,
     )
     return upsampler
 
@@ -188,8 +203,37 @@ def main():
         action="store_true",
         help="Use float32 instead of float16. Slower but works on CPU and older GPUs.",
     )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=None,
+        metavar="N",
+        help="Limit CPU threads for PyTorch and OpenCV. Useful for core management and temperature control.",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        metavar="DEVICE",
+        help="Force execution on a specific device, e.g. 'cpu', 'cuda', 'cuda:0'.",
+    )
 
     args = parser.parse_args()
+
+    # Limit CPU threads if specified, set before PyTorch and OpenCV start multi-threading
+    if args.threads is not None and args.threads > 0:
+        import os
+        t_str = str(args.threads)
+        os.environ["OMP_NUM_THREADS"] = t_str
+        os.environ["MKL_NUM_THREADS"] = t_str
+        os.environ["OPENBLAS_NUM_THREADS"] = t_str
+        os.environ["VECLIB_MAXIMUM_THREADS"] = t_str
+        os.environ["NUMEXPR_NUM_THREADS"] = t_str
+        try:
+            import torch
+            torch.set_num_threads(args.threads)
+        except ImportError:
+            pass
 
     input_path = Path(args.input).resolve()
     model_cfg = MODELS[args.model]
@@ -212,15 +256,23 @@ def main():
     print(f"Output  : {out_dir}")
     if args.tile:
         print(f"Tile    : {args.tile}px")
+    if args.threads is not None:
+        print(f"Threads : {args.threads}")
+    if args.device is not None:
+        print(f"Device  : {args.device}")
     print()
 
     # Load model (deferred import so --help works without torch installed)
-    upsampler = build_upsampler(model_cfg, tile=args.tile, use_fp32=args.fp32)
+    upsampler = build_upsampler(model_cfg, tile=args.tile, use_fp32=args.fp32, device=args.device)
 
     try:
         import cv2
     except ImportError:
         sys.exit("ERROR: 'opencv-python' is not installed.")
+
+    # Apply OpenCV thread limits if specified
+    if args.threads is not None and args.threads > 0:
+        cv2.setNumThreads(args.threads)
 
     succeeded = 0
     failed = 0

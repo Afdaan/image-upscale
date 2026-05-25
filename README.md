@@ -160,6 +160,23 @@ upscale photo.jpg --tile 512
 upscale photo.jpg --scale 2
 ```
 
+### Limit CPU threads (core usage)
+
+```bash
+# Limit to 4 threads (useful for laptop thermal control or server core management)
+upscale photo.jpg --threads 4
+```
+
+### Force execution device
+
+```bash
+# Force CPU execution (even if GPU is available)
+upscale photo.jpg --device cpu
+
+# Force a specific CUDA GPU device
+upscale photo.jpg --device cuda:0
+```
+
 ---
 
 ## Thunar usage
@@ -191,7 +208,7 @@ Model weights are downloaded automatically on first use to `~/.cache/image-upsca
 ## Full usage reference
 
 ```
-upscale <input> [--model MODEL] [--scale N] [--tile SIZE] [--fp32]
+upscale <input> [--model MODEL] [--scale N] [--tile SIZE] [--fp32] [--threads N] [--device DEVICE]
 
 positional arguments:
   input           Path to an image file or a directory of images
@@ -201,4 +218,6 @@ options:
   --scale N       Output scale factor, e.g. 2.0 or 3.5 (default: model's native scale)
   --tile SIZE     Tile size in pixels for VRAM-limited GPUs, e.g. 512 (default: 0 = full image)
   --fp32          Use float32 — required for CPU or very old GPUs
+  --threads N     Limit CPU threads for PyTorch and OpenCV. Useful for core management and temperature control.
+  --device DEVICE Force execution on a specific device, e.g. cpu, cuda, cuda:0
 ```
