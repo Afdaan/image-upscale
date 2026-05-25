@@ -92,6 +92,20 @@ def build_upsampler(model_cfg: dict, tile: int, use_fp32: bool, device: str = No
         if effective_half:
             print("  CPU mode active. Automatically switching to float32 (--fp32) for compatibility.")
             effective_half = False
+        
+        # Test if PyTorch's oneDNN (MKLDNN) backend is compatible with this CPU to avoid runtime crashes
+        try:
+            conv = torch.nn.Conv2d(3, 3, 3)
+            x = torch.randn(1, 3, 16, 16)
+            with torch.no_grad():
+                _ = conv(x)
+        except RuntimeError as exc:
+            if "could not create a primitive" in str(exc):
+                try:
+                    torch.backends.mkldnn.enabled = False
+                except AttributeError:
+                    pass
+
         # Disable NNPACK to avoid "Unsupported hardware" warning logs on older server CPUs
         try:
             torch.backends.nnpack.enabled = False
